@@ -1,0 +1,244 @@
+CREATE DATABASE test
+
+USE test
+
+CREATE TABLE Persons (
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    FirstName NVARCHAR(20) NOT NULL,
+    LastName NVARCHAR(20) NOT NULL,
+    DateOfBirth DATE NOT NULL
+);
+
+CREATE TABLE Doctors (
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    FirstName NVARCHAR(20) NOT NULL,
+    LastName NVARCHAR(20) NOT NULL
+);
+
+
+CREATE TABLE Appointments (
+Id INT PRIMARY KEY IDENTITY(1,1),
+FirstName NVARCHAR(20) NOT NULL,
+LastName NVARCHAR(20) NOT NULL,
+AppointmentDate DATE NOT NULL,
+Status INT NOT NULL,
+PersonId INT,
+DoctorId INT,
+CONSTRAINT FK_Appointments_Persons FOREIGN KEY(PersonId) REFERENCES Persons(Id),
+CONSTRAINT FK_Appointments_Doctors FOREIGN KEY(DoctorId)REFERENCES Doctors(Id)
+);
+
+
+
+CREATE PROCEDURE GetAllPersons
+AS
+BEGIN
+SELECT * FROM Persons
+END;
+
+CREATE PROCEDURE GetPersonById(@Id int)
+AS
+BEGIN
+SELECT * FROM Persons WHERE Id = @Id
+END;
+
+
+CREATE PROCEDURE DeletePerson(@Id int)
+AS
+BEGIN
+DELETE FROM Persons WHERE Id = @Id
+END;
+
+
+CREATE PROCEDURE CreatePerson(@FirstName nvarchar(20), @LastName nvarchar(20))
+AS 
+BEGIN
+INSERT INTO Persons(FirstName,LastName)
+VALUES (@FirstName, @LastName)
+END;
+
+CREATE PROCEDURE CreateDoctor
+    @FirstName NVARCHAR(20),
+    @LastName NVARCHAR(20)
+AS
+BEGIN
+    INSERT INTO Doctors (FirstName, LastName)
+    VALUES (@FirstName, @LastName);
+
+
+CREATE PROCEDURE DeleteDoctor
+    @Id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM Doctors WHERE Id = @Id)
+    BEGIN
+        RAISERROR('Doctor not found.', 16, 1);
+        RETURN;
+    END
+
+    DELETE FROM Doctors
+    WHERE Id = @Id;
+END;
+
+
+CREATE PROCEDURE GetAllDoctors
+AS
+BEGIN
+SELECT * FROM Doctors
+END;
+
+CREATE PROCEDURE GetDoctorById
+    @Id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT *
+    FROM Doctors
+    WHERE Id = @Id;
+END;
+
+
+CREATE PROCEDURE GetAppointmentById
+    @Id INT
+AS
+BEGIN
+    SELECT *
+    FROM Appointments
+    WHERE Id = @Id;
+END;
+
+
+CREATE PROCEDURE GetAllAppointments
+    @Status INT = NULL,
+    @Skip INT = 0,
+    @Take INT = 10
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @Where NVARCHAR(MAX) = '';
+    IF @Status IS NOT NULL
+        SET @Where = 'WHERE Status = @Status';
+
+    DECLARE @sql NVARCHAR(MAX) = '
+        SELECT *
+        FROM Appointments
+        ' + @Where + '
+        ORDER BY AppointmentDate
+        OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY';
+
+    EXEC sp_executesql @sql, N'@Status INT, @Skip INT, @Take INT', @Status, @Skip, @Take;
+
+    DECLARE @countSql NVARCHAR(MAX) = 'SELECT COUNT(*) FROM Appointments ' + @Where;
+    EXEC sp_executesql @countSql, N'@Status INT', @Status;
+END;
+
+
+
+CREATE PROCEDURE GetAppointmentsByPersonId
+    @PersonId INT,
+    @Skip INT = 0,
+    @Take INT = 10
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT *
+    FROM Appointments
+    WHERE PersonId = @PersonId
+    ORDER BY AppointmentDate
+    OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+    SELECT COUNT(*) FROM Appointments WHERE PersonId = @PersonId;
+END
+
+
+
+CREATE PROCEDURE GetAppointmentsByDoctorId
+    @DoctorId INT,
+    @Skip INT = 0,
+    @Take INT = 10
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT *
+    FROM Appointments
+    WHERE DoctorId = @DoctorId
+    ORDER BY AppointmentDate
+    OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY;
+
+    SELECT COUNT(*) FROM Appointments WHERE DoctorId = @DoctorId;
+END;
+
+
+
+
+CREATE PROCEDURE CancelAppointment
+    @Id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @Status INT;
+
+    SELECT @Status = Status FROM Appointments WHERE Id = @Id;
+
+    IF @Status IS NULL
+    BEGIN
+        RAISERROR('Appointment not found.', 16, 1);
+        RETURN;
+    END
+
+    IF @Status = 3
+    BEGIN
+        RAISERROR('Appointment is already cancelled.', 16, 1);
+        RETURN;
+    END
+
+    UPDATE Appointments
+    SET Status = 3
+    WHERE Id = @Id;
+END;
+
+
+
+
+CREATE PROCEDURE BookAppointment
+    @PersonId INT,
+    @DoctorId INT,
+    @AppointmentDate DATETIME2
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM Persons WHERE Id = @PersonId)
+    BEGIN
+        RAISERROR('Person not found.', 16, 1);
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM Doctors WHERE Id = @DoctorId)
+    BEGIN
+        RAISERROR('Doctor not found.', 16, 1);
+        RETURN;
+    END
+
+    IF EXISTS (
+        SELECT 1
+        FROM Appointments
+        WHERE DoctorId = @DoctorId
+          AND AppointmentDate = @AppointmentDate
+          AND Status = 1
+    )
+    BEGIN
+        RAISERROR('This appointment time is already booked.', 16, 1);
+        RETURN;
+    END
+
+    INSERT INTO Appointments (PersonId, DoctorId, AppointmentDate, Status)
+    VALUES (@PersonId, @DoctorId, @AppointmentDate, 1);
+END;
